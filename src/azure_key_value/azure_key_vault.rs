@@ -46,6 +46,7 @@ impl AzureKeyValue {
                     if value.value.is_some() {
                         return Ok(value.value);
                     }
+                    token.set_expired();
                     no += 1;
                     if no > 3 {
                         return Err(AzureKeyValueError::Other(format!(
