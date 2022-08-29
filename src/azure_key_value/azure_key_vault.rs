@@ -11,12 +11,12 @@ pub struct SecretValue {
     value: Option<String>,
 }
 
-pub struct AzureKeyValue {
+pub struct MyAzureKeyVault {
     token_manager: Arc<BearerTokenManager>,
     url: String,
 }
 
-impl AzureKeyValue {
+impl MyAzureKeyVault {
     pub fn new(token_manager: Arc<BearerTokenManager>, url: String) -> Self {
         Self { token_manager, url }
     }
