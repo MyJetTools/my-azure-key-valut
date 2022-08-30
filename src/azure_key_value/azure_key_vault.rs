@@ -83,6 +83,8 @@ impl MyAzureKeyVault {
 
             let bytes = flurl.receive_body().await.unwrap();
 
+            println!("{}", std::str::from_utf8(bytes.as_slice()).unwrap());
+
             let result: Result<SecretValueModel, _> = serde_json::from_slice(bytes.as_slice());
 
             match result {
