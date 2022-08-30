@@ -77,6 +77,7 @@ impl MyAzureKeyVault {
                 .append_path_segment("secrets")
                 .append_path_segment(secret_name)
                 .append_query_param("api-version", "7.3")
+                .with_header("Content-Type", "application/json")
                 .with_header("Authorization", token.get_bearer());
 
             let flurl = flurl.put(Some(payload)).await.unwrap();
