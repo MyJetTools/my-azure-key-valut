@@ -25,10 +25,10 @@ impl MyAzureKeyVault {
         loop {
             let token = self.token_manager.get_bearer_token().await?;
 
-            let flurl = FlUrl::new(self.url.as_str(), None)
+            let flurl = FlUrl::new(self.url.as_str())
                 .append_path_segment("secrets")
                 .append_path_segment(secret_name)
-                .append_query_param("api-version", "7.3")
+                .append_query_param("api-version", "7.3".into())
                 .with_header("Authorization", token.get_bearer());
 
             let flurl = flurl.get().await.unwrap();
@@ -73,10 +73,10 @@ impl MyAzureKeyVault {
 
             let payload = serde_json::to_vec(&model).unwrap();
 
-            let flurl = FlUrl::new(self.url.as_str(), None)
+            let flurl = FlUrl::new(self.url.as_str())
                 .append_path_segment("secrets")
                 .append_path_segment(secret_name)
-                .append_query_param("api-version", "7.3")
+                .append_query_param("api-version", Some("7.3"))
                 .with_header("Content-Type", "application/json")
                 .with_header("Authorization", token.get_bearer());
 
@@ -112,10 +112,10 @@ impl MyAzureKeyVault {
         loop {
             let token = self.token_manager.get_bearer_token().await?;
 
-            let flurl = FlUrl::new(self.url.as_str(), None)
+            let flurl = FlUrl::new(self.url.as_str())
                 .append_path_segment("secrets")
                 .append_path_segment(secret_name)
-                .append_query_param("api-version", "7.3")
+                .append_query_param("api-version", "7.3".into())
                 .with_header("Authorization", token.get_bearer());
 
             let flurl = flurl.delete().await.unwrap();

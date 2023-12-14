@@ -23,7 +23,7 @@ impl BearerToken {
             "grant_type=client_credentials&client_id={client_id}&client_secret={client_secret}&scope=https%3A%2F%2Fvault.azure.net%2F.default"
         );
 
-        let bytes = FlUrl::new(url, None)
+        let bytes = FlUrl::new(url)
             .append_path_segment(tenant)
             .append_path_segment("oauth2")
             .append_path_segment("v2.0")
