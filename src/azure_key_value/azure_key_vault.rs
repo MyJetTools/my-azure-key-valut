@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use flurl::FlUrl;
+use flurl::{body::FlUrlBody, FlUrl};
 
 use crate::{
     bearer_token::BearerTokenManager, AzureKeyValueError, DeleteSecretModel, SaveSecretModel,
@@ -21,38 +21,46 @@ impl MyAzureKeyVault {
         &self,
         secret_name: &str,
     ) -> Result<Option<String>, AzureKeyValueError> {
-        let mut no = 0;
+        let mut attempts = 0;
         loop {
             let token = self.token_manager.get_bearer_token().await?;
 
-            let flurl = FlUrl::new(self.url.as_str())
+            let response = FlUrl::new(self.url.as_str())
                 .append_path_segment("secrets")
                 .append_path_segment(secret_name)
-                .append_query_param("api-version", "7.3".into())
-                .with_header("Authorization", token.get_bearer());
+                .append_query_param("api-version", Some("7.3"))
+                .with_header("Authorization", token.get_bearer())
+                .get()
+                .await?;
 
-            let flurl = flurl.get().await.unwrap();
+            let status = response.get_status_code();
+            let body = response.receive_body().await?;
+            match status {
+                200 => {
+                    let value: SecretValueModel = serde_json::from_slice(&body).map_err(|err| {
+                        AzureKeyValueError::Other(format!(
+                            "Failed to parse secret response: {}",
+                            err
+                        ))
+                    })?;
 
-            let bytes = flurl.receive_body().await.unwrap();
-
-            let result: Result<SecretValueModel, _> = serde_json::from_slice(bytes.as_slice());
-
-            match result {
-                Ok(value) => {
-                    if value.value.is_some() {
-                        return Ok(value.value);
-                    }
+                    return value.value.map(Some).ok_or_else(|| {
+                        AzureKeyValueError::Other("Secret response missing value".to_string())
+                    });
+                }
+                401 | 403 => {
                     token.set_expired();
-                    no += 1;
-                    if no > 3 {
-                        return Err(AzureKeyValueError::Other(format!(
-                            "Can not issue bearer token. Attempt:{}",
-                            no
-                        )));
+                    attempts += 1;
+                    if attempts >= 3 {
+                        return Err(AzureKeyValueError::Other(
+                            "Failed to refresh bearer token after 3 attempts".to_string(),
+                        ));
                     }
                 }
-                Err(err) => {
-                    return Err(AzureKeyValueError::Other(format!("{}", err)));
+                404 => return Ok(None),
+                _ => {
+                    let message = String::from_utf8_lossy(&body).to_string();
+                    return Err(AzureKeyValueError::HttpStatus(status, message));
                 }
             }
         }
@@ -63,7 +71,7 @@ impl MyAzureKeyVault {
         secret_name: &str,
         value: &str,
     ) -> Result<(), AzureKeyValueError> {
-        let mut no = 0;
+        let mut attempts = 0;
         loop {
             let token = self.token_manager.get_bearer_token().await?;
 
@@ -71,75 +79,101 @@ impl MyAzureKeyVault {
                 value: value.to_string(),
             };
 
-            let payload = serde_json::to_vec(&model).unwrap();
+            let payload = FlUrlBody::as_json(&model);
 
             let flurl = FlUrl::new(self.url.as_str())
                 .append_path_segment("secrets")
                 .append_path_segment(secret_name)
                 .append_query_param("api-version", Some("7.3"))
                 .with_header("Content-Type", "application/json")
-                .with_header("Authorization", token.get_bearer());
+                .with_header("Authorization", token.get_bearer())
+                .put(payload)
+                .await?;
 
-            let flurl = flurl.put(Some(payload)).await.unwrap();
+            let status = flurl.get_status_code();
+            let body = flurl.receive_body().await?;
 
-            let bytes = flurl.receive_body().await.unwrap();
+            match status {
+                200 | 201 => {
+                    let result: SecretValueModel =
+                        serde_json::from_slice(&body).map_err(|err| {
+                            AzureKeyValueError::Other(format!(
+                                "Failed to parse save secret response: {}",
+                                err
+                            ))
+                        })?;
 
-            let result: Result<SecretValueModel, _> = serde_json::from_slice(bytes.as_slice());
-
-            match result {
-                Ok(result) => {
                     if result.value.is_some() {
                         return Ok(());
                     }
+
+                    return Err(AzureKeyValueError::Other(
+                        "Save secret response missing value".to_string(),
+                    ));
+                }
+                401 | 403 => {
                     token.set_expired();
-                    no += 1;
-                    if no > 3 {
-                        return Err(AzureKeyValueError::Other(format!(
-                            "Can not issue bearer token. Attempt:{}",
-                            no
-                        )));
+                    attempts += 1;
+                    if attempts >= 3 {
+                        return Err(AzureKeyValueError::Other(
+                            "Failed to refresh bearer token after 3 attempts".to_string(),
+                        ));
                     }
                 }
-                Err(err) => {
-                    return Err(AzureKeyValueError::Other(format!("{}", err)));
+                status => {
+                    let message = String::from_utf8_lossy(&body).to_string();
+                    return Err(AzureKeyValueError::HttpStatus(status, message));
                 }
             }
         }
     }
 
     pub async fn delete_secret(&self, secret_name: &str) -> Result<String, AzureKeyValueError> {
-        let mut no = 0;
+        let mut attempts = 0;
         loop {
             let token = self.token_manager.get_bearer_token().await?;
 
             let flurl = FlUrl::new(self.url.as_str())
                 .append_path_segment("secrets")
                 .append_path_segment(secret_name)
-                .append_query_param("api-version", "7.3".into())
-                .with_header("Authorization", token.get_bearer());
+                .append_query_param("api-version", Some("7.3"))
+                .with_header("Authorization", token.get_bearer())
+                .delete()
+                .await?;
 
-            let flurl = flurl.delete().await.unwrap();
+            let status = flurl.get_status_code();
+            let body = flurl.receive_body().await?;
 
-            let bytes = flurl.receive_body().await.unwrap();
+            match status {
+                200 | 202 => {
+                    let value: DeleteSecretModel =
+                        serde_json::from_slice(&body).map_err(|err| {
+                            AzureKeyValueError::Other(format!(
+                                "Failed to parse delete secret response: {}",
+                                err
+                            ))
+                        })?;
 
-            let result: Result<DeleteSecretModel, _> = serde_json::from_slice(bytes.as_slice());
-
-            match result {
-                Ok(value) => {
-                    if value.recovery_id.is_some() {
-                        return Ok(value.recovery_id.unwrap());
+                    if let Some(recovery_id) = value.recovery_id {
+                        return Ok(recovery_id);
                     }
+
+                    return Err(AzureKeyValueError::Other(
+                        "Delete secret response missing recovery_id".to_string(),
+                    ));
+                }
+                401 | 403 => {
                     token.set_expired();
-                    no += 1;
-                    if no > 3 {
-                        return Err(AzureKeyValueError::Other(format!(
-                            "Can not issue bearer token. Attempt:{}",
-                            no
-                        )));
+                    attempts += 1;
+                    if attempts >= 3 {
+                        return Err(AzureKeyValueError::Other(
+                            "Failed to refresh bearer token after 3 attempts".to_string(),
+                        ));
                     }
                 }
-                Err(err) => {
-                    return Err(AzureKeyValueError::Other(format!("{}", err)));
+                status => {
+                    let message = String::from_utf8_lossy(&body).to_string();
+                    return Err(AzureKeyValueError::HttpStatus(status, message));
                 }
             }
         }
